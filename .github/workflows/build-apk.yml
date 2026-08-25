@@ -24,24 +24,39 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            git zip unzip wget curl \
+            git \
+            zip \
+            unzip \
+            wget \
+            curl \
             openjdk-17-jdk \
-            autoconf automake libtool pkg-config \
-            zlib1g-dev libncurses5-dev libncursesw5-dev \
-            cmake libffi-dev libssl-dev
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            cmake \
+            libffi-dev \
+            libssl-dev
 
       - name: Instalar Android SDK
         run: |
           mkdir -p "$HOME/android-sdk/cmdline-tools"
+
           cd "$HOME/android-sdk"
 
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
 
           unzip -q commandlinetools-linux-13114758_latest.zip
 
-          mkdir -p cmdline-tools/latest
+          mkdir -p "$HOME/android-sdk/cmdline-tools/latest"
 
-          mv cmdline-tools/cmdline-tools/* cmdline-tools/latest/
+          mv cmdline-tools/bin "$HOME/android-sdk/cmdline-tools/latest/"
+          mv cmdline-tools/lib "$HOME/android-sdk/cmdline-tools/latest/"
+          mv cmdline-tools/NOTICE.txt "$HOME/android-sdk/cmdline-tools/latest/" || true
+          mv cmdline-tools/source.properties "$HOME/android-sdk/cmdline-tools/latest/" || true
 
           echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
@@ -59,6 +74,13 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
+      - name: Comprobar ADB y AIDL
+        run: |
+          echo "Comprobando Android SDK..."
+          which adb || true
+          which aidl || true
+          sdkmanager --version
+
       - name: Instalar Buildozer
         run: |
           python -m pip install --upgrade pip
@@ -68,8 +90,8 @@ jobs:
         run: |
           buildozer android debug
 
-      - name: Guardar APK
+      - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
-          name: Reloj-Premium-APK
+          name: Detector-Magnetico-APK
           path: bin/*.apk
