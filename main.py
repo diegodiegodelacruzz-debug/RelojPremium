@@ -1,94 +1,515 @@
+import math
+import time
+
 from kivy.app import App
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
-from kivy.graphics import Color, RoundedRectangle
+from kivy.uix.progressbar import ProgressBar
 from kivy.clock import Clock
 from kivy.core.window import Window
-from datetime import datetime
 
-try:
-    from plyer import battery
-    BATTERY_OK = True
-except Exception:
-    BATTERY_OK = False
+from jnius import autoclass, PythonJavaClass, java_method
 
-class Panel(FloatLayout):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        with self.canvas.before:
-            Color(0.04, 0.04, 0.05, 1)
-            self.fondo = RoundedRectangle(pos=self.pos, size=self.size, radius=[25])
-        self.bind(pos=self._update_bg, size=self._update_bg)
-    def _update_bg(self, *args):
-        self.fondo.pos = self.pos
-        self.fondo.size = self.size
+from plyer import vibrator
 
-class RelojApp(App):
+
+PythonActivity = autoclass(
+    "org.kivy.android.PythonActivity"
+)
+
+Context = autoclass(
+    "android.content.Context"
+)
+
+Sensor = autoclass(
+    "android.hardware.Sensor"
+)
+
+SensorManager = autoclass(
+    "android.hardware.SensorManager"
+)
+
+
+class SensorListener(PythonJavaClass):
+
+    __javainterfaces__ = [
+        "android/hardware/SensorEventListener"
+    ]
+
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+
+    @java_method("(Landroid/hardware/SensorEvent;)V")
+    def onSensorChanged(self, event):
+
+        valores = event.values
+
+        x = float(valores[0])
+        y = float(valores[1])
+        z = float(valores[2])
+
+        intensidad = math.sqrt(
+            x*x + y*y + z*z
+        )
+
+        Clock.schedule_once(
+            lambda dt: self.app.actualizar(
+                x,
+                y,
+                z,
+                intensidad
+            )
+        )
+
+    @java_method("(Landroid/hardware/Sensor;I)V")
+    def onAccuracyChanged(
+        self,
+        sensor,
+        accuracy
+    ):
+        pass
+
+
+class DetectorApp(App):
+
     def build(self):
-        Window.clearcolor = (0.01, 0.01, 0.015, 1)
-        try: Window.fullscreen = True
-        except Exception: pass
-        self.formato_24 = True
-        self.mostrar_fecha = True
-        self.mostrar_bateria = True
-        self.menu = None
-        self.root = FloatLayout()
-        self.hora = Label(text='00:00:00', font_size='82sp', bold=True,
-                          color=(0.95,0.95,0.98,1), size_hint=(1,.25),
-                          pos_hint={'center_x':.5,'center_y':.59})
-        self.fecha = Label(text='', font_size='20sp', color=(.55,.57,.62,1),
-                           size_hint=(1,.10), pos_hint={'center_x':.5,'center_y':.42})
-        self.bateria = Label(text='', font_size='17sp', color=(.45,.47,.52,1),
-                             size_hint=(1,.08), pos_hint={'center_x':.5,'center_y':.28})
-        self.config = Button(text='⚙', font_size='28sp', background_normal='',
-                             background_color=(0,0,0,0), color=(.55,.57,.62,1),
-                             size_hint=(None,None), size=('65dp','65dp'),
-                             pos_hint={'right':.97,'top':.96})
-        self.config.bind(on_release=self.mostrar_menu)
-        for w in (self.hora,self.fecha,self.bateria,self.config): self.root.add_widget(w)
-        Clock.schedule_interval(self.actualizar, 1)
-        self.actualizar(0)
-        return self.root
-    def actualizar(self, dt):
-        ahora = datetime.now()
-        self.hora.text = ahora.strftime('%H:%M:%S') if self.formato_24 else ahora.strftime('%I:%M:%S %p')
-        dias=['LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO','DOMINGO']
-        meses=['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
-        self.fecha.text=f'{dias[ahora.weekday()]}  •  {ahora.day} DE {meses[ahora.month-1]}'
-        if BATTERY_OK:
-            try:
-                p=battery.status.get('percentage')
-                self.bateria.text=f'●  {p}%' if p is not None else ''
-            except Exception: self.bateria.text=''
-    def mostrar_menu(self, instance):
-        if self.menu: return
-        self.menu=Panel(size_hint=(.88,.78),pos_hint={'center_x':.5,'center_y':.5})
-        title=Label(text='CONFIGURACIÓN',font_size='25sp',bold=True,color=(.95,.95,.98,1),size_hint=(1,.15),pos_hint={'center_x':.5,'top':.96})
-        self.menu.add_widget(title)
-        self.boton_formato=Button(text=self.texto_formato(),font_size='18sp',background_normal='',background_color=(.10,.10,.12,1),color=(.9,.9,.93,1),size_hint=(.82,.16),pos_hint={'center_x':.5,'center_y':.67})
-        self.boton_formato.bind(on_release=self.cambiar_formato)
-        self.menu.add_widget(self.boton_formato)
-        self.boton_fecha=Button(text=self.texto_fecha(),font_size='18sp',background_normal='',background_color=(.10,.10,.12,1),color=(.9,.9,.93,1),size_hint=(.82,.16),pos_hint={'center_x':.5,'center_y':.47})
-        self.boton_fecha.bind(on_release=self.cambiar_fecha)
-        self.menu.add_widget(self.boton_fecha)
-        self.boton_bateria=Button(text=self.texto_bateria(),font_size='18sp',background_normal='',background_color=(.10,.10,.12,1),color=(.9,.9,.93,1),size_hint=(.82,.16),pos_hint={'center_x':.5,'center_y':.27})
-        self.boton_bateria.bind(on_release=self.cambiar_bateria)
-        self.menu.add_widget(self.boton_bateria)
-        cerrar=Button(text='CERRAR',font_size='18sp',background_normal='',background_color=(.15,.15,.17,1),color=(.75,.75,.8,1),size_hint=(.60,.11),pos_hint={'center_x':.5,'y':.06})
-        cerrar.bind(on_release=self.cerrar_menu)
-        self.menu.add_widget(cerrar)
-        self.root.add_widget(self.menu)
-    def texto_formato(self): return 'Formato de hora\n24 HORAS' if self.formato_24 else 'Formato de hora\n12 HORAS'
-    def texto_fecha(self): return 'Mostrar fecha\nACTIVADO' if self.mostrar_fecha else 'Mostrar fecha\nDESACTIVADO'
-    def texto_bateria(self): return 'Mostrar batería\nACTIVADO' if self.mostrar_bateria else 'Mostrar batería\nDESACTIVADO'
-    def cambiar_formato(self, instance):
-        self.formato_24=not self.formato_24; instance.text=self.texto_formato(); self.actualizar(0)
-    def cambiar_fecha(self, instance):
-        self.mostrar_fecha=not self.mostrar_fecha; self.fecha.opacity=1 if self.mostrar_fecha else 0; instance.text=self.texto_fecha()
-    def cambiar_bateria(self, instance):
-        self.mostrar_bateria=not self.mostrar_bateria; self.bateria.opacity=1 if self.mostrar_bateria else 0; instance.text=self.texto_bateria()
-    def cerrar_menu(self, instance):
-        if self.menu: self.root.remove_widget(self.menu); self.menu=None
 
-if __name__ == '__main__': RelojApp().run()
+        Window.clearcolor = (
+            0.015,
+            0.015,
+            0.02,
+            1
+        )
+
+        self.maximo = 0
+        self.ultimo_vibrado = 0
+
+        self.root = FloatLayout()
+
+        # =========================
+        # TITULO
+        # =========================
+
+        titulo = Label(
+            text="DETECTOR MAGNÉTICO",
+            font_size="24sp",
+            bold=True,
+            color=(
+                0.9,
+                0.9,
+                0.95,
+                1
+            ),
+            size_hint=(1, 0.10),
+            pos_hint={
+                "center_x": 0.5,
+                "top": 0.94
+            }
+        )
+
+        self.root.add_widget(titulo)
+
+        # =========================
+        # VALOR
+        # =========================
+
+        self.valor = Label(
+            text="--",
+            font_size="64sp",
+            bold=True,
+            color=(
+                1,
+                1,
+                1,
+                1
+            ),
+            size_hint=(1, 0.22),
+            pos_hint={
+                "center_x": 0.5,
+                "center_y": 0.70
+            }
+        )
+
+        self.root.add_widget(self.valor)
+
+        # =========================
+        # UNIDAD
+        # =========================
+
+        unidad = Label(
+            text="MICROTESLAS (µT)",
+            font_size="16sp",
+            color=(
+                0.5,
+                0.5,
+                0.55,
+                1
+            ),
+            size_hint=(1, 0.07),
+            pos_hint={
+                "center_x": 0.5,
+                "center_y": 0.58
+            }
+        )
+
+        self.root.add_widget(unidad)
+
+        # =========================
+        # ESTADO
+        # =========================
+
+        self.estado = Label(
+            text="INICIANDO...",
+            font_size="21sp",
+            bold=True,
+            color=(
+                0.3,
+                1,
+                0.4,
+                1
+            ),
+            size_hint=(1, 0.08),
+            pos_hint={
+                "center_x": 0.5,
+                "center_y": 0.50
+            }
+        )
+
+        self.root.add_widget(self.estado)
+
+        # =========================
+        # BARRA
+        # =========================
+
+        self.barra = ProgressBar(
+            max=300,
+            value=0,
+            size_hint=(0.80, None),
+            height="20dp",
+            pos_hint={
+                "center_x": 0.5,
+                "center_y": 0.42
+            }
+        )
+
+        self.root.add_widget(self.barra)
+
+        # =========================
+        # MAXIMO
+        # =========================
+
+        self.max_label = Label(
+            text="MÁXIMO: -- µT",
+            font_size="18sp",
+            color=(
+                0.65,
+                0.65,
+                0.7,
+                1
+            ),
+            size_hint=(1, 0.08),
+            pos_hint={
+                "center_x": 0.5,
+                "center_y": 0.34
+            }
+        )
+
+        self.root.add_widget(self.max_label)
+
+        # =========================
+        # EJES
+        # =========================
+
+        self.x_label = Label(
+            text="X: --",
+            font_size="17sp",
+            color=(
+                0.6,
+                0.6,
+                0.65,
+                1
+            ),
+            size_hint=(0.33, 0.08),
+            pos_hint={
+                "x": 0,
+                "center_y": 0.24
+            }
+        )
+
+        self.root.add_widget(self.x_label)
+
+        self.y_label = Label(
+            text="Y: --",
+            font_size="17sp",
+            color=(
+                0.6,
+                0.6,
+                0.65,
+                1
+            ),
+            size_hint=(0.33, 0.08),
+            pos_hint={
+                "x": 0.33,
+                "center_y": 0.24
+            }
+        )
+
+        self.root.add_widget(self.y_label)
+
+        self.z_label = Label(
+            text="Z: --",
+            font_size="17sp",
+            color=(
+                0.6,
+                0.6,
+                0.65,
+                1
+            ),
+            size_hint=(0.33, 0.08),
+            pos_hint={
+                "x": 0.66,
+                "center_y": 0.24
+            }
+        )
+
+        self.root.add_widget(self.z_label)
+
+        # =========================
+        # RESET
+        # =========================
+
+        reset = Button(
+            text="REINICIAR MÁXIMO",
+            font_size="17sp",
+            background_normal="",
+            background_color=(
+                0.12,
+                0.12,
+                0.15,
+                1
+            ),
+            color=(
+                0.9,
+                0.9,
+                0.95,
+                1
+            ),
+            size_hint=(0.65, 0.10),
+            pos_hint={
+                "center_x": 0.5,
+                "center_y": 0.10
+            }
+        )
+
+        reset.bind(
+            on_release=self.reset_maximo
+        )
+
+        self.root.add_widget(reset)
+
+        Clock.schedule_once(
+            self.iniciar_sensor,
+            0.5
+        )
+
+        return self.root
+
+    # ==================================
+    # SENSOR
+    # ==================================
+
+    def iniciar_sensor(self, dt):
+
+        try:
+
+            actividad = (
+                PythonActivity.mActivity
+            )
+
+            manager = (
+                actividad.getSystemService(
+                    Context.SENSOR_SERVICE
+                )
+            )
+
+            sensor = (
+                manager.getDefaultSensor(
+                    Sensor.TYPE_MAGNETIC_FIELD
+                )
+            )
+
+            if sensor is None:
+
+                self.valor.text = "N/A"
+
+                self.estado.text = (
+                    "SIN MAGNETÓMETRO"
+                )
+
+                self.estado.color = (
+                    1,
+                    0.25,
+                    0.25,
+                    1
+                )
+
+                return
+
+            self.manager = manager
+            self.sensor = sensor
+
+            self.listener = SensorListener(
+                self
+            )
+
+            manager.registerListener(
+                self.listener,
+                sensor,
+                SensorManager.SENSOR_DELAY_GAME
+            )
+
+            self.estado.text = (
+                "SENSOR ACTIVO"
+            )
+
+        except Exception as e:
+
+            self.estado.text = (
+                "ERROR"
+            )
+
+            print(e)
+
+    # ==================================
+    # ACTUALIZAR
+    # ==================================
+
+    def actualizar(
+        self,
+        x,
+        y,
+        z,
+        intensidad
+    ):
+
+        self.valor.text = (
+            f"{intensidad:.1f}"
+        )
+
+        self.x_label.text = (
+            f"X: {x:.1f}"
+        )
+
+        self.y_label.text = (
+            f"Y: {y:.1f}"
+        )
+
+        self.z_label.text = (
+            f"Z: {z:.1f}"
+        )
+
+        # Máximo
+        if intensidad > self.maximo:
+
+            self.maximo = intensidad
+
+            self.max_label.text = (
+                f"MÁXIMO: {self.maximo:.1f} µT"
+            )
+
+        # Barra
+        self.barra.value = min(
+            intensidad,
+            300
+        )
+
+        # Estados
+        if intensidad < 60:
+
+            self.estado.text = (
+                "🟢 CAMPO NORMAL"
+            )
+
+            self.estado.color = (
+                0.3,
+                1,
+                0.4,
+                1
+            )
+
+        elif intensidad < 120:
+
+            self.estado.text = (
+                "🟡 CAMPO ELEVADO"
+            )
+
+            self.estado.color = (
+                1,
+                0.8,
+                0.2,
+                1
+            )
+
+        else:
+
+            self.estado.text = (
+                "🔴 CAMPO MAGNÉTICO FUERTE"
+            )
+
+            self.estado.color = (
+                1,
+                0.25,
+                0.25,
+                1
+            )
+
+            # Vibrar como máximo cada 1 segundo
+            ahora = time.time()
+
+            if ahora - self.ultimo_vibrado > 1:
+
+                try:
+
+                    vibrator.vibrate(
+                        0.2
+                    )
+
+                except:
+
+                    pass
+
+                self.ultimo_vibrado = ahora
+
+    # ==================================
+    # RESET
+    # ==================================
+
+    def reset_maximo(self, instance):
+
+        self.maximo = 0
+
+        self.max_label.text = (
+            "MÁXIMO: -- µT"
+        )
+
+    # ==================================
+    # CERRAR
+    # ==================================
+
+    def on_stop(self):
+
+        try:
+
+            self.manager.unregisterListener(
+                self.listener
+            )
+
+        except:
+
+            pass
+
+
+if __name__ == "__main__":
+    DetectorApp().run()
